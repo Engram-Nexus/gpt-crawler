@@ -5,7 +5,7 @@ const doc = {
     title: "GPT Crawler API",
     description: "GPT Crawler",
   },
-  host: "localhost:5000",
+  host: "https://crawler.engram.nexus",
 };
 
 const outputFile = "swagger-output.json";
