@@ -8,9 +8,11 @@ import swaggerUi from "swagger-ui-express";
 import swaggerDocument from "../swagger-output.json" assert {type: "json"};
 import GPTCrawlerCore from "./core.js";
 import {randomUUID} from "node:crypto";
-import {S3} from "aws-sdk";
+import AWS from "aws-sdk";
 import {ClientConfiguration, PutObjectOutput} from "aws-sdk/clients/s3";
 import {promisify} from "node:util";
+
+const {S3} = AWS;
 
 configDotenv();
 
@@ -26,11 +28,11 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 const s3Config: ClientConfiguration = {
   credentials: {
     accessKeyId: process.env.R2_KEY_ID!!,
-    secretAccessKey: process.env.R2_SECRET_KEY!!
+    secretAccessKey: process.env.R2_SECRET_KEY!!,
   },
   region: "auto",
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  signatureVersion: "v4"
+  signatureVersion: "v4",
   // sslEnabled: true,
   // forcePathStyle: true,
 };
@@ -50,13 +52,16 @@ app.post("/crawl", async (req, res) => {
         .then((p) => readFile(p, "utf-8"))
         .then((contents) => {
           // Upload to R2
-          const putObject = promisify<S3.Types.PutObjectRequest, PutObjectOutput>(s3Client.putObject)
+          const putObject = promisify<AWS.S3.Types.PutObjectRequest, PutObjectOutput>(
+              s3Client.putObject,
+          );
 
           putObject({
             Bucket: process.env.R2_BUCKET!!,
             Key: config.outputFileName,
             Body: contents,
-          }).then(r => {
+          })
+              .then((r) => {
             console.log(r);
           })
               .catch((err) => {
