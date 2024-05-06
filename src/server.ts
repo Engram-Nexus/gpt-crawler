@@ -27,8 +27,8 @@ const s3Client = new S3Client({
     secretAccessKey: process.env.R2_SECRET_KEY!!,
   },
   region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
-})
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+});
 
 // Define a POST route to accept config and run the crawler
 app.post("/crawl", async (req, res) => {
@@ -45,11 +45,16 @@ app.post("/crawl", async (req, res) => {
         .then((contents) => {
           // Upload to R2
 
-          s3Client.send(new PutObjectCommand({
-            Bucket: process.env.R2_BUCKET!!,
-            Key: config.outputFileName,
-            Body: contents,
-          }))
+          s3Client
+              .send(
+                  new PutObjectCommand({
+                    Bucket: process.env.R2_BUCKET!!,
+                    Key: config.outputFileName,
+                    ContentEncoding: "utf-8",
+                    ContentType: "application/json",
+                    Body: contents,
+                  }),
+              )
               .then((r) => {
             console.log(r);
           })
