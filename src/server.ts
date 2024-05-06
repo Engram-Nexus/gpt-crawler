@@ -7,8 +7,8 @@ import swaggerUi from "swagger-ui-express";
 // @ts-ignore
 import swaggerDocument from "../swagger-output.json" assert {type: "json"};
 import GPTCrawlerCore from "./core.js";
-import {PathLike} from "fs";
 import {randomUUID} from "node:crypto";
+import {PutObjectCommand, S3} from "@aws-sdk/client-s3";
 
 configDotenv();
 
@@ -20,7 +20,17 @@ app.use(cors());
 app.use(express.json());
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-const completedJobs: { [uuid: string]: PathLike } = {};
+// const completedJobs: { [uuid: string]: PathLike } = {};
+const s3Config = {
+    "credentials": {
+        "accessKeyId": process.env.R2_KEY_ID,
+        "secretAccessKey": process.env.R2_SECRET_KEY
+    },
+    "endpoint": `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    "sslEnabled": true,
+    "forcePathStyle": true
+};
+const s3Client = new S3([s3Config]);
 
 // Define a POST route to accept config and run the crawler
 app.post("/crawl", async (req, res) => {
@@ -33,12 +43,26 @@ app.post("/crawl", async (req, res) => {
         crawler
             .crawl()
             .then(() => crawler.write())
-            .then((p) => {
-                completedJobs[config.outputFileName] = p;
+            .then(p => readFile(p, "utf-8"))
+            .then(contents => {
+                // Upload to R2
+                const command = new PutObjectCommand({
+                    Bucket: process.env.R2_BUCKET,
+                    Key: config.outputFileName,
+                    Body: contents,
+                });
+
+                s3Client.send(command).then(r => {
+                    console.log(r)
+                }).catch(err => {
+                    console.error(err);
+                });
+
+                // completedJobs[config.outputFileName] = p;
             });
         return res
             .json({
-                message: `Config is valid. Use GET /retrieve/${id} to get the results.`,
+                message: `Config is valid. The results ${config.outputFileName} will be uploaded to R2 bucket ${process.env.R2_BUCKET}.`,
             })
             .status(200);
     } catch (error) {
@@ -48,23 +72,23 @@ app.post("/crawl", async (req, res) => {
     }
 });
 
-app.get("/retrieve/:id", async (req, res) => {
-    const outputFileName = completedJobs[req.params.id];
-    if (!outputFileName) {
-        return res
-            .json({message: "Job not yet completed or submitted."})
-            .status(404);
-    }
-    try {
-        const outputFileContent = await readFile(outputFileName, "utf-8");
-        res.contentType("application/json");
-        return res.send(outputFileContent);
-    } catch (error) {
-        return res
-            .status(500)
-            .json({message: "Error occurred during retrieving", error});
-    }
-});
+// app.get("/retrieve/:id", async (req, res) => {
+//   const outputFileName = completedJobs[req.params.id];
+//   if (!outputFileName) {
+//     return res
+//       .json({ message: "Job not yet completed or submitted." })
+//       .status(404);
+//   }
+//   try {
+//     const outputFileContent = await readFile(outputFileName, "utf-8");
+//     res.contentType("application/json");
+//     return res.send(outputFileContent);
+//   } catch (error) {
+//     return res
+//       .status(500)
+//       .json({ message: "Error occurred during retrieving", error });
+//   }
+// });
 
 app.listen(port, hostname, () => {
     console.log(`API server listening at http://${hostname}:${port}`);
