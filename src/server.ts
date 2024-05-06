@@ -8,11 +8,7 @@ import swaggerUi from "swagger-ui-express";
 import swaggerDocument from "../swagger-output.json" assert {type: "json"};
 import GPTCrawlerCore from "./core.js";
 import {randomUUID} from "node:crypto";
-import AWS from "aws-sdk";
-import {ClientConfiguration, PutObjectOutput} from "aws-sdk/clients/s3";
-import {promisify} from "node:util";
-
-const {S3} = AWS;
+import {PutObjectCommand, S3Client} from "@aws-sdk/client-s3";
 
 configDotenv();
 
@@ -25,18 +21,14 @@ app.use(express.json());
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // const completedJobs: { [uuid: string]: PathLike } = {};
-const s3Config: ClientConfiguration = {
+const s3Client = new S3Client({
   credentials: {
     accessKeyId: process.env.R2_KEY_ID!!,
     secretAccessKey: process.env.R2_SECRET_KEY!!,
   },
   region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  signatureVersion: "v4",
-  // sslEnabled: true,
-  // forcePathStyle: true,
-};
-const s3Client = new S3(s3Config);
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+})
 
 // Define a POST route to accept config and run the crawler
 app.post("/crawl", async (req, res) => {
@@ -52,15 +44,12 @@ app.post("/crawl", async (req, res) => {
         .then((p) => readFile(p, "utf-8"))
         .then((contents) => {
           // Upload to R2
-          const putObject = promisify<AWS.S3.Types.PutObjectRequest, PutObjectOutput>(
-              s3Client.putObject,
-          );
 
-          putObject({
+          s3Client.send(new PutObjectCommand({
             Bucket: process.env.R2_BUCKET!!,
             Key: config.outputFileName,
             Body: contents,
-          })
+          }))
               .then((r) => {
             console.log(r);
           })

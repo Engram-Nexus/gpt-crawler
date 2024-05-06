@@ -19,7 +19,7 @@
     "inquirer": "^9.2.12",
     "playwright": "^1.43.1",
     "prettier": "^3.1.0",
-    "aws-sdk": "^2.1613.0",
+    "@aws-sdk/client-s3": "^3.569.0",
     "swagger-ui-express": "^5.0.0"
   },
   "devDependencies": {
