@@ -8,7 +8,9 @@ import swaggerUi from "swagger-ui-express";
 import swaggerDocument from "../swagger-output.json" assert {type: "json"};
 import GPTCrawlerCore from "./core.js";
 import {randomUUID} from "node:crypto";
-import {PutObjectCommand, S3Client} from "@aws-sdk/client-s3";
+import {S3} from "aws-sdk";
+import {ClientConfiguration, PutObjectOutput} from "aws-sdk/clients/s3";
+import {promisify} from "node:util";
 
 configDotenv();
 
@@ -21,59 +23,58 @@ app.use(express.json());
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // const completedJobs: { [uuid: string]: PathLike } = {};
-const s3Config = {
-    credentials: {
-        accessKeyId: process.env.R2_KEY_ID,
-        secretAccessKey: process.env.R2_SECRET_KEY,
-    },
-    region: "auto",
-    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    // sslEnabled: true,
-    // forcePathStyle: true,
+const s3Config: ClientConfiguration = {
+  credentials: {
+    accessKeyId: process.env.R2_KEY_ID!!,
+    secretAccessKey: process.env.R2_SECRET_KEY!!
+  },
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  signatureVersion: "v4"
+  // sslEnabled: true,
+  // forcePathStyle: true,
 };
-const s3Client = new S3Client([s3Config]);
+const s3Client = new S3(s3Config);
 
 // Define a POST route to accept config and run the crawler
 app.post("/crawl", async (req, res) => {
-    const config: Config = req.body;
-    const id = randomUUID();
-    config.outputFileName = id + ".json";
-    try {
-        const validatedConfig = configSchema.parse(config);
-        const crawler = new GPTCrawlerCore(validatedConfig);
-        crawler
-            .crawl()
-            .then(() => crawler.write())
-            .then((p) => readFile(p, "utf-8"))
-            .then((contents) => {
-                // Upload to R2
-                const command = new PutObjectCommand({
-                    Bucket: process.env.R2_BUCKET,
-                    Key: config.outputFileName,
-                    Body: contents,
-                });
+  const config: Config = req.body;
+  const id = randomUUID();
+  config.outputFileName = id + ".json";
+  try {
+    const validatedConfig = configSchema.parse(config);
+    const crawler = new GPTCrawlerCore(validatedConfig);
+    crawler
+        .crawl()
+        .then(() => crawler.write())
+        .then((p) => readFile(p, "utf-8"))
+        .then((contents) => {
+          // Upload to R2
+          const putObject = promisify<S3.Types.PutObjectRequest, PutObjectOutput>(s3Client.putObject)
 
-                s3Client
-                    .send(command)
-                    .then((r) => {
-                        console.log(r);
-                    })
-                    .catch((err) => {
-                        console.error(err);
-                    });
+          putObject({
+            Bucket: process.env.R2_BUCKET!!,
+            Key: config.outputFileName,
+            Body: contents,
+          }).then(r => {
+            console.log(r);
+          })
+              .catch((err) => {
+                console.error(err);
+              });
 
-                // completedJobs[config.outputFileName] = p;
-            });
-        return res
-            .json({
-                message: `Config is valid. The results ${config.outputFileName} will be uploaded to R2 bucket ${process.env.R2_BUCKET}.`,
-            })
-            .status(200);
-    } catch (error) {
-        return res
-            .status(500)
-            .json({message: "Error occurred during crawling", error});
-    }
+          // completedJobs[config.outputFileName] = p;
+        });
+    return res
+        .json({
+          message: `Config is valid. The results ${config.outputFileName} will be uploaded to R2 bucket ${process.env.R2_BUCKET}.`,
+        })
+        .status(200);
+  } catch (error) {
+    return res
+        .status(500)
+        .json({message: "Error occurred during crawling", error});
+  }
 });
 
 // app.get("/retrieve/:id", async (req, res) => {
@@ -95,7 +96,7 @@ app.post("/crawl", async (req, res) => {
 // });
 
 app.listen(port, hostname, () => {
-    console.log(`API server listening at http://${hostname}:${port}`);
+  console.log(`API server listening at http://${hostname}:${port}`);
 });
 
 export default app;
